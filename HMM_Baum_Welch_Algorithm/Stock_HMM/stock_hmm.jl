@@ -8,200 +8,15 @@ pgfplotsx()
 using LaTeXStrings
 using DelimitedFiles
 using ProgressBars
+using MarketData
+using Dates
 
-# function forwardPass(O_dict::Dict{Int64,Int64}, O::Vector{Int64}, πs::Vector{Float64},
-#                      A::Matrix{Float64}, B::Matrix{Float64}, nS::Int64, nT::Int64)
-#   c = zeros(Float64, nT)
-#   α = zeros(Float64, nS, nT)
-#   @inbounds for i in 1:nS
-#     v = O_dict[O[1]]
-#     α[i, 1] = πs[i] * B[i, v]
-#   end
-#   c[1] = 1 / sum(α[:, 1])
-#   α[:, 1] *= c[1]
-
-#   @inbounds for t in 2:nT
-#     @inbounds for i in 1:nS
-#       sum_α = 0.0
-#       @inbounds for j in 1:nS
-#         sum_α += α[j, t - 1] * A[j, i]
-#       end
-#       v = O_dict[O[t]]
-#       α[i, t] = B[i, v] * sum_α
-#     end
-#     c[t] = 1 / sum(α[:, t])
-#     α[:, t] *= c[t]
-#   end
-
-#   return α, c
-# end
-
-# function backwardPass(O_dict::Dict{Int64,Int64}, O::Vector{Int64}, A::Matrix{Float64},
-#                       B::Matrix{Float64}, c::Vector{Float64}, nS::Int64, nT::Int64)
-#   β = ones(Float64, nS, nT)
-#   β[:, end] *= c[end]
-
-#   @inbounds for t in (nT - 1):-1:1
-#     @inbounds for i in 1:nS
-#       sum_β = 0.0
-#       @inbounds for j in 1:nS
-#         v = O_dict[O[t + 1]]
-#         sum_β += β[j, t + 1] * A[i, j] * B[j, v]
-#       end
-#       β[i, t] = sum_β
-#     end
-#     β[:, t] *= c[t]
-#   end
-
-#   return β
-# end
-
-# function computeGamma(α::Matrix{Float64}, β::Matrix{Float64}, nS::Int64, nT::Int64)
-#   γ = zeros(Float64, nS, nT)
-
-#   @inbounds for t in 1:nT
-#     sum_αβ = sum(α[:, t] .* β[:, t])
-#     @inbounds for j in 1:nS
-#       γ[j, t] = (α[j, t] * β[j, t]) / sum_αβ
-#     end
-#   end
-
-#   return γ
-# end
-
-# function computeXi(O_dict::Dict{Int64,Int64}, O::Vector{Int64}, α::Matrix{Float64},
-#                    β::Matrix{Float64}, A::Matrix{Float64}, B::Matrix{Float64}, nS::Int64, nT::Int64)
-#   ξ = zeros(Float64, nS, nS, nT - 1)
-#   @inbounds for t in 1:(nT - 1)
-#     sum_ξ = 0.0
-#     @inbounds for i in 1:nS
-#       @inbounds for j in 1:nS
-#         v = O_dict[O[t + 1]]
-#         sum_ξ += α[i, t] * A[i, j] * β[j, t + 1] * B[j, v]
-#       end
-#     end
-
-#     @inbounds for i in 1:nS
-#       @inbounds for j in 1:nS
-#         v = O_dict[O[t + 1]]
-#         ξ[i, j, t] = α[i, t] * A[i, j] * β[j, t + 1] * B[j, v] / sum_ξ
-#       end
-#     end
-#   end
-
-#   return ξ
-# end
-
-# function parameterUpdate(O_dict::Dict{Int64,Int64}, O::Vector{Int64}, γ::Matrix{Float64},
-#                          ξ::Array{Float64,3}, nS::Int64, nO::Int64, nT::Int64)
-#   πs_updated = zeros(Float64, nS)
-#   A_updated = zeros(Float64, nS, nS)
-#   B_updated = zeros(Float64, nS, nO)
-
-#   # Updating the probabilities after learning from the training data
-#   πs_updated = γ[:, 1]
-#   πs_updated /= sum(πs_updated)
-
-#   @inbounds for i in 1:nS
-#     @inbounds for j in 1:nS
-#       sum_ξ = 0.0
-#       sum_γ = 0.0
-#       @inbounds for t in 1:(nT - 1)
-#         sum_ξ += ξ[i, j, t]
-#         sum_γ += sum(γ[i, t])
-#       end
-#       A_updated[i, j] = sum_ξ / sum_γ
-#     end
-#   end
-#   A_updated ./= sum(A_updated; dims=2)
-
-#   @inbounds for j in 1:nS
-#     @inbounds for k in 1:nO
-#       numerator = 0.0
-#       denominator = 0.0
-#       @inbounds for t in 1:nT
-#         if O_dict[O[t]] == k
-#           numerator += γ[j, t]
-#         end
-#         denominator += γ[j, t]
-#       end
-#       B_updated[j, k] = numerator / denominator
-#     end
-#   end
-#   B_updated ./= sum(B_updated; dims=2)
-
-#   return πs_updated, A_updated, B_updated
-# end
-
-# function baumWelchAlgorithm(O_dict::Dict{Int64,Int64}, O::Vector{Int64}, πs::Vector{Float64},
-#                             A::Matrix{Float64}, B::Matrix{Float64}, nS::Int64, nO::Int64, nT::Int64,
-#                             max_iter::Int64=10000, TOL::Float64=1e-5)
-#   prev_log_likelihood = -Inf
-
-#   @inbounds for i in 1:max_iter
-#     α, c = forwardPass(O_dict, O, πs, A, B, nS, nT)
-#     β = backwardPass(O_dict, O, A, B, c, nS, nT)
-
-#     γ = computeGamma(α, β, nS, nT)
-#     ξ = computeXi(O_dict, O, α, β, A, B, nS, nT)
-
-#     # Updating the parameters πs, A, and B
-#     πs_new, A_new, B_new = parameterUpdate(O_dict, O, γ, ξ, nS, nO, nT)
-
-#     log_likelihood = -sum(log.(c))
-
-#     πs .= πs_new
-#     A .= A_new
-#     B .= B_new
-
-#     if abs(log_likelihood - prev_log_likelihood) < TOL
-#       break
-#     end
-
-#     printstyled("\t Iteration :: $i, \t Log likelihood :: $(round(log_likelihood, sigdigits=10)) \n";
-#                 color=:blue)
-
-#     prev_log_likelihood = log_likelihood
-#   end
-
-#   return πs, A, B
-# end
-
-# function viterbiAlgorithm(O_dict::Dict{Int64,Int64}, O::Vector{Int64}, πs::Vector{Float64},
-#                           A::Matrix{Float64}, B::Matrix{Float64}, nS::Int64, nT::Int64)
-#   P = zeros(Float64, nS, nT)
-#   P_p = zeros(Int64, nS, nT)
-#   @inbounds for i in 1:nS
-#     v = O_dict[O[1]]
-#     P[i, 1] = πs[i] * B[i, v]
-#   end
-
-#   @inbounds for t in 2:nT
-#     @inbounds for i in 1:nS
-#       @inbounds for j in 1:nS
-#         v = O_dict[O[t]]
-#         prob = P[j, t - 1] * A[j, i] * B[i, v]
-#         if prob > P[i, t]
-#           P[i, t] = prob
-#           P_p[i, t] = j
-#         end
-#       end
-#     end
-#   end
-
-#   path = zeros(Int64, nT)
-#   path[end] = argmax(P[:, end])
-
-#   @inbounds for t in (nT - 1):-1:1
-#     path[t] = P_p[path[t + 1], t + 1]
-#   end
-
-#   return path
-# end
-
-function readData(filename::String)
-  data = readdlm(filename, ',')
-  return Matrix{Float64}(data[2:end, 2:5])
+function readData(symbol::String, start_date::Tuple{Int64,Int64,Int64},
+                  end_date::Tuple{Int64,Int64,Int64}, intv::String)
+  start_time = DateTime(start_date[1], start_date[2], start_date[3])
+  end_time = DateTime(end_date[1], end_date[2], end_date[3])
+  data = yahoo(symbol, YahooOpt(; period1=start_time, period2=end_time, interval=intv))
+  return values(data["Open", "High", "Low", "Close"])
 end
 
 function scalingFeatures(data::Matrix{Float64})
@@ -477,8 +292,14 @@ MAIN PROGRAM
 """
 
 # Reading the training data and scaling the features
-training_data = readData("AAPL_Train.csv")
+# symbol = "AAPL"
+# symbol = "HYMTF"
+# symbol = "BTC-USD"
+symbol = "SMSN.IL"
+training_data = readData(symbol, (2023, 1, 1), (2024, 5, 1), "1d")
+test_data = readData(symbol, (2024, 5, 2), (2024, 8, 1), "1d")
 scaled_train_states = scalingFeatures(training_data)
+scaled_test_states = scalingFeatures(test_data)
 
 # Computing the possible states that can be reached
 minfC = minimum(scaled_train_states[:, 1])
@@ -494,9 +315,10 @@ nO = (nC + 1) * (nH + 1) * (nL + 1)
 possible_states = possibleStates(minfC, maxfC, minfH, maxfH, minfL, maxfL, nC, nH, nL)
 
 # Parameters needed for modeling the GMM-HMM model
-rng = MersenneTwister(50000)
+rng = MersenneTwister(1000)
 nS = 3
 nTrain = size(scaled_train_states, 1)
+nTest = size(scaled_test_states, 1)
 
 πs_tot = zeros(Float64, nS)
 A_tot = zeros(Float64, nS, nS)
@@ -509,26 +331,49 @@ B_tot = zeros(Float64, nS, nO)
 indices_train = dataIndices(scaled_train_states, possible_states)
 πs_tot, A_tot, B_tot = baumWelchAlgorithm(indices_train, πs_init, A_init, B_init, nS, nO, nTrain)
 
-test_data = readData("AAPL_Test.csv")
-scaled_test_states = scalingFeatures(test_data)
-nTest = size(scaled_test_states, 1)
-
 indices_test = dataIndices(scaled_test_states, possible_states)
 
-states = viterbiAlgorithm(indices_train, πs_tot, A_tot, B_tot, nS, nTrain)
+# Predicting the optimal states for the trained HMM model
+optimal_states = viterbiAlgorithm(indices_train, πs_tot, A_tot, B_tot, nS, nTrain)
 
-current_state = states[end]
-future_states = genFutureStates(current_state, A_tot, nS, nTest, rng)
-future_observations = genFutureObs(future_states, B_tot, nO, rng)
+# Running Monte Carlo simulations to obtain an estimate for the close price
+nMC = 10
+future_observations = zeros(Int64, nTest, nMC)
+future_close_vals = zeros(Float64, nTest, nMC)
+@inbounds for k in 1:nMC
+  println("Monte Carlo iteration :: $k")
+  current_state = optimal_states[end]
+  future_states = genFutureStates(current_state, A_tot, nS, nTest, rng)
+  future_observations[:, k] .= genFutureObs(future_states, B_tot, nO, rng)
 
-close_vals = Vector{Float64}(undef, 0)
-@inbounds for i in 1:nTest
-  open_val = test_data[i, 1]
-  fC = possible_states[future_observations[i], 1]
-  close_val = open_val * fC + open_val
-  append!(close_vals, close_val)
+  @inbounds for i in 1:nTest
+    open_val = test_data[i, 1]
+    fC = possible_states[future_observations[i, k], 1]
+    future_close_vals[i, k] = open_val * fC + open_val
+  end
 end
 
-plot(1:nTest, close_vals; linecolor="blue", markercolor="blue", markersize=4)
-plot!(1:nTest, test_data[:, 4]; linecolor="red", markercolor="red", markersize=4)
-savefig("plot.pdf")
+# Computing the mean and the variance of the predictions
+mean_future_obs = mean(future_close_vals; dims=2)
+var_future_obs = var(future_close_vals; dims=2)
+error_vals = begin
+  local Cα = 1.96
+  Cα * sqrt.(var_future_obs / nMC)
+end
+
+# Computing the mean absolute prediction error (MAPE)
+rel_vals = @. abs(mean_future_obs - test_data[:, 4]) / abs(test_data[:, 4]) * 100
+MAPE = mean(rel_vals)
+println("Mean Absolute Percentage Error (MAPE) :: ", round(MAPE; sigdigits=6))
+
+default(; size=(1200, 1000), legendfontsize=24, guidefontsize=22, tickfontsize=20, titlefontsize=26,
+        minorgrid=true, linewidth=1.5, framestyle=:box)
+plot(1:nTest, mean_future_obs; ribbon=error_vals, label="Future predictions", linecolor="blue",
+     markershape=:circle, markercolor="blue", markersize=4)
+plot!(1:nTest, test_data[:, 4]; label="Actual stock price", linecolor="red", markershape=:circle,
+      markercolor="red", markersize=4)
+plot!(; legend_position=:topleft)
+title!("$(symbol) stock actual vs. prediction")
+xlabel!("Time (in days)")
+ylabel!("Stock price (in \$)")
+savefig("$(symbol)_predictions.pdf")
