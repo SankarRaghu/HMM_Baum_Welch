@@ -183,11 +183,11 @@ end
 
 rng = MersenneTwister(1000)
 
-nS = 3
-nO = 5
-nTrain = 100
-nTest = 20
-d = 10
+nS = 5
+nO = 20
+nTrain = 200
+nTest = 50
+d = 20
 
 rng = MersenneTwister(1000)
 observations = sample(rng, 1:nO, nTrain + nTest)

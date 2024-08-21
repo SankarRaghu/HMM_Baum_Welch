@@ -1,3 +1,8 @@
+using Pkg
+
+# Installing the necessary libraries
+Pkg.add(["Random", "Statistics", "StatsBase", "Distributions", "LinearAlgebra", "Plots", "LaTeXStrings", "DelimitedFiles", "ProgressBars", "MarketData", "Dates"])
+
 using Random
 using Statistics
 using StatsBase
@@ -11,6 +16,7 @@ using ProgressBars
 using MarketData
 using Dates
 
+# Read stock market data through webscraping
 function readData(symbol::String, start_date::Tuple{Int64,Int64,Int64},
                   end_date::Tuple{Int64,Int64,Int64}, intv::String)
   start_time = DateTime(start_date[1], start_date[2], start_date[3])
@@ -19,6 +25,7 @@ function readData(symbol::String, start_date::Tuple{Int64,Int64,Int64},
   return values(data["Open", "High", "Low", "Close"])
 end
 
+# Scaling the features from 4D state space to 3D state space
 function scalingFeatures(data::Matrix{Float64})
   open = data[:, 1]
   high = data[:, 2]
@@ -30,6 +37,7 @@ function scalingFeatures(data::Matrix{Float64})
   return cat(fC, fH, fL; dims=2)
 end
 
+# Generating the mesh of possible states that can be attained by the model
 function possibleStates(minfC::Float64, maxfC::Float64, minfH::Float64, maxfH::Float64,
                         minfL::Float64, maxfL::Float64, nC::Int64, nH::Int64, nL::Int64)
   ΔfC = (maxfC - minfC) / nC
@@ -48,6 +56,7 @@ function possibleStates(minfC::Float64, maxfC::Float64, minfH::Float64, maxfH::F
   return possible_states
 end
 
+# Projecting the actual stock data observations onto the generated mesh
 function dataIndices(scaled_states::Matrix{Float64}, possible_states::Matrix{Float64})
   nT = size(scaled_states, 1)
   indices = zeros(Int64, nT)
@@ -58,6 +67,7 @@ function dataIndices(scaled_states::Matrix{Float64}, possible_states::Matrix{Flo
   return indices
 end
 
+# Initializing the paratemeter set θ = (π, A, B) for training the HMM model
 function initProbabilities(nS::Int64, nO::Int64, rng::MersenneTwister)
   # Initializing the initial probabilities of the states
   πs = (1 / nS) * ones(Float64, nS)
@@ -252,6 +262,7 @@ function viterbiAlgorithm(O::Vector{Int64}, πs::Vector{Float64}, A::Matrix{Floa
   return path
 end
 
+# Generate future hidden states based on the trained HMM model
 function genFutureStates(cS::Int64, A::Matrix{Float64}, nS::Int64, nT::Int64, rng::MersenneTwister)
   future_states = Vector{Int64}(undef, 0)
   @inbounds for _ in 1:nT
@@ -263,6 +274,7 @@ function genFutureStates(cS::Int64, A::Matrix{Float64}, nS::Int64, nT::Int64, rn
   return future_states
 end
 
+# Generate future observations based on the trained HMM model
 function genFutureObs(fS::Vector{Int64}, B::Matrix{Float64}, nO::Int64, rng::MersenneTwister)
   future_observations = Vector{Int64}(undef, 0)
   @inbounds for s in fS
@@ -366,6 +378,7 @@ rel_vals = @. abs(mean_future_obs - test_data[:, 4]) / abs(test_data[:, 4]) * 10
 MAPE = mean(rel_vals)
 println("Mean Absolute Percentage Error (MAPE) :: ", round(MAPE; sigdigits=6))
 
+# Plotting the stock predictions along with actual test data
 default(; size=(1200, 1000), legendfontsize=24, guidefontsize=22, tickfontsize=20, titlefontsize=26,
         minorgrid=true, linewidth=1.5, framestyle=:box)
 plot(1:nTest, mean_future_obs; ribbon=error_vals, label="Future predictions", linecolor="blue",
